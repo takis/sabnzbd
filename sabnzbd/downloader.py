@@ -38,7 +38,7 @@ import sabnzbd.config as config
 import sabnzbd.cfg as cfg
 from sabnzbd.bpsmeter import BPSMeter
 import sabnzbd.scheduler
-from sabnzbd.misc import from_units
+from sabnzbd.misc import from_units, nntp_to_msg
 from sabnzbd.utils.happyeyeballs import happyeyeballs
 
 
@@ -438,7 +438,7 @@ class Downloader(Thread):
                         # Article too old for the server, treat as missing
                         if sabnzbd.LOG_ALL:
                             logging.debug('Article %s too old for %s', article.article, server.id)
-                        self.decoder.decode(article, None)
+                        self.decoder.decode(article, None, None)
                         break
 
                     server.idle_threads.remove(nw)
@@ -561,17 +561,17 @@ class Downloader(Thread):
                     if nzo:
                         nzo.update_download_stats(BPSMeter.do.get_bps(), server.id, bytes)
 
-                if len(nw.lines) == 1:
-                    code = nw.lines[0][:3]
+                if not done and nw.data[0][0:3].isdigit() and nw.data[0][0:3] != '222':
+                    code = nw.data[0][0:3]
                     if not nw.connected or code == '480':
                         done = False
 
                         try:
                             nw.finish_connect(code)
                             if sabnzbd.LOG_ALL:
-                                logging.debug("%s@%s last message -> %s", nw.thrdnum, nw.server.id, nw.lines[0])
+                                logging.debug("%s@%s last message -> %s", nw.thrdnum, nw.server.id, nnntp_to_msg(nw.data[0]))
                             nw.lines = []
-                            nw.data = ''
+                            nw.data = []
                         except NNTPPermanentError, error:
                             # Handle login problems
                             block = False
@@ -648,7 +648,7 @@ class Downloader(Thread):
                             continue
                         except:
                             logging.error(T('Connecting %s@%s failed, message=%s'),
-                                              nw.thrdnum, nw.server.id, nw.lines[0])
+                                              nw.thrdnum, nw.server.id, nntp_to_msg(nw.data[0]))
                             # No reset-warning needed, above logging is sufficient
                             self.__reset_nw(nw, None, warn=False)
 
@@ -659,21 +659,22 @@ class Downloader(Thread):
                     elif code == '223':
                         done = True
                         logging.debug('Article <%s> is present', article.article)
-                        self.decoder.decode(article, nw.lines)
+                        self.decoder.decode(article, nw.lines, nw.data)
 
                     elif code == '211':
                         done = False
 
                         logging.debug("group command ok -> %s",
-                                      nw.lines)
+                                      nntp_to_msg(nw.data[0]))
                         nw.group = nw.article.nzf.nzo.group
                         nw.lines = []
-                        nw.data = ''
+                        nw.data = []
                         self.__request_article(nw)
 
                     elif code in ('411', '423', '430'):
                         done = True
-                        nw.lines = None
+                        nw.lines = []
+                        nw.data = []
 
                         logging.info('Thread %s@%s: Article ' +
                                         '%s missing (error=%s)',
@@ -698,7 +699,7 @@ class Downloader(Thread):
                             server.have_body = False
                             logging.debug('Server %s does not support BODY', server.id)
                         nw.lines = []
-                        nw.data = ''
+                        nw.data = []
                         self.__request_article(nw)
 
                 if done:
@@ -706,7 +707,7 @@ class Downloader(Thread):
                     server.errormsg = server.warning = ''
                     if sabnzbd.LOG_ALL:
                         logging.debug('Thread %s@%s: %s done', nw.thrdnum, server.id, article.article)
-                    self.decoder.decode(article, nw.lines)
+                    self.decoder.decode(article, nw.lines, nw.data)
 
                     nw.soft_reset()
                     server.busy_threads.remove(nw)
@@ -755,7 +756,7 @@ class Downloader(Thread):
         if article:
             if article.tries > cfg.max_art_tries() and (article.fetcher.optional or not cfg.max_art_opt()):
                 # Too many tries on this server, consider article missing
-                self.decoder.decode(article, None)
+                self.decoder.decode(article, None, None)
             else:
                 # Remove this server from try_list
                 article.fetcher = None

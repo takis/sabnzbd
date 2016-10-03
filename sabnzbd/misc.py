@@ -1458,3 +1458,9 @@ def get_urlbase(url):
     """ Return the base URL (like http://server.domain.com/) """
     parsed_uri = urlparse(url)
     return '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
+
+
+def nntp_to_msg(text):
+    """ Format raw NNTP data for display """
+    lines = text.split('\r\n')
+    return lines[0]
